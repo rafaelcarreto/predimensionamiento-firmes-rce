@@ -1,27 +1,43 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 import json
 import folium
 from streamlit_folium import st_folium
 
 st.set_page_config(page_title="Diseño de Firmes 6.1-IC", layout="wide")
 
-# --- DICCIONARIO DE FIRMES ---
-secciones_firme = {
-    "T00": {"E3": "Rodadura: 3cm (BBTM) | Intermedia: 8cm (AC) | Base: 14cm (AC) | Subbase: 25cm (Zahorra)"},
-    "T0":  {"E2": "Rodadura: 3cm (BBTM) | Intermedia: 7cm (AC) | Base: 15cm (AC) | Subbase: 25cm (Zahorra)",
-            "E3": "Rodadura: 3cm (BBTM) | Intermedia: 7cm (AC) | Base: 12cm (AC) | Subbase: 25cm (Zahorra)"},
-    "T1":  {"E2": "Rodadura: 5cm (AC) | Intermedia: 7cm (AC) | Base: 12cm (AC) | Subbase: 25cm (Zahorra)",
-            "E3": "Rodadura: 5cm (AC) | Base: 14cm (AC) | Subbase: 25cm (Zahorra)"},
-    "T2":  {"E2": "Rodadura: 5cm (AC) | Base: 12cm (AC) | Subbase: 20cm (Zahorra)",
-            "E3": "Rodadura: 5cm (AC) | Base: 10cm (AC) | Subbase: 20cm (Zahorra)"},
-    "T3":  {"E1": "Rodadura: 5cm (AC) | Base: 12cm (AC) | Subbase: 25cm (Zahorra)",
-            "E2": "Rodadura: 5cm (AC) | Base: 10cm (AC) | Subbase: 20cm (Zahorra)",
-            "E3": "Rodadura: 5cm (AC) | Base: 8cm (AC) | Subbase: 20cm (Zahorra)"},
-    "T4":  {"E1": "Rodadura: 5cm (AC) | Subbase: 25cm (Zahorra)",
-            "E2": "Rodadura: 5cm (AC) | Subbase: 20cm (Zahorra)",
-            "E3": "Rodadura: 5cm (AC) | Subbase: 20cm (Zahorra)"}
+# --- DICCIONARIO COMPLETO NORMA 6.1-IC (Secciones Flexibles/Semirrígidas) ---
+# Estructura: "Tipo de material": [Espesor en cm, "Color Hexadecimal para el gráfico"]
+# MB = Mezcla Bituminosa, GC = Gravacemento, ZA = Zahorra Artificial
+norma_61_ic = {
+    "T00": {
+        "E3": {"Rodadura (BBTM)": [3, '#2C2C2C'], "Intermedia (AC)": [7, '#404040'], "Base (AC)": [15, '#595959'], "Subbase (GC)": [25, '#8B7D6B']}
+    },
+    "T0": {
+        "E2": {"Rodadura (BBTM)": [3, '#2C2C2C'], "Intermedia (AC)": [7, '#404040'], "Base (AC)": [15, '#595959'], "Subbase (ZA)": [25, '#C2B280']},
+        "E3": {"Rodadura (BBTM)": [3, '#2C2C2C'], "Intermedia (AC)": [7, '#404040'], "Base (AC)": [12, '#595959'], "Subbase (GC)": [20, '#8B7D6B']}
+    },
+    "T1": {
+        "E2": {"Rodadura (AC)": [5, '#2C2C2C'], "Intermedia (AC)": [7, '#404040'], "Base (AC)": [12, '#595959'], "Subbase (ZA)": [25, '#C2B280']},
+        "E3": {"Rodadura (AC)": [5, '#2C2C2C'], "Base (AC)": [14, '#595959'], "Subbase (ZA)": [25, '#C2B280']}
+    },
+    "T2": {
+        "E2": {"Rodadura (AC)": [5, '#2C2C2C'], "Base (AC)": [12, '#595959'], "Subbase (ZA)": [20, '#C2B280']},
+        "E3": {"Rodadura (AC)": [5, '#2C2C2C'], "Base (AC)": [10, '#595959'], "Subbase (ZA)": [20, '#C2B280']}
+    },
+    "T3": {
+        "E1": {"Rodadura (AC)": [5, '#2C2C2C'], "Base (AC)": [12, '#595959'], "Subbase (ZA)": [25, '#C2B280']},
+        "E2": {"Rodadura (AC)": [5, '#2C2C2C'], "Base (AC)": [10, '#595959'], "Subbase (ZA)": [20, '#C2B280']},
+        "E3": {"Rodadura (AC)": [5, '#2C2C2C'], "Base (AC)": [8, '#595959'], "Subbase (ZA)": [20, '#C2B280']}
+    },
+    "T4": {
+        "E1": {"Rodadura (AC)": [5, '#2C2C2C'], "Subbase (ZA)": [25, '#C2B280']},
+        "E2": {"Rodadura (AC)": [5, '#2C2C2C'], "Subbase (ZA)": [20, '#C2B280']},
+        "E3": {"Rodadura (AC)": [5, '#2C2C2C'], "Subbase (ZA)": [20, '#C2B280']}
+    }
 }
 
 # --- CARGA DE DATOS ---
@@ -65,7 +81,7 @@ with col_controles:
     st.subheader("3. Capacidad Portante")
     explanada = st.selectbox("Categoría de la Explanada", ["E1", "E2", "E3"], index=1)
 
-# --- CÁLCULOS ---
+# --- CÁLCULOS MATEMÁTICOS ---
 imdp_inicial = imd_base * (pesados_base / 100) / 2 
 factor_carril = 1.0 if carriles == 1 else (0.5 if carriles == 2 else 0.4)
 imdp_carril_diseno_inicial = imdp_inicial * factor_carril
@@ -99,53 +115,84 @@ with col_resultados:
         * $IMD_p$ proyecto = {int(imdp_carril_diseno_inicial)} $\\times (1 + {tasa_crecimiento/100})^{{{horizonte/2}}}$ = **{int(imdp_proyecto)} pesados/día**
         """)
         
+    # --- REPRESENTACIÓN VISUAL DE LA SECCIÓN (NUEVO) ---
     st.markdown("### 🏗️ Sección Estructural Recomendada")
+    
     try:
-        st.success(secciones_firme[categoria_trafico][explanada])
-    except KeyError:
-        st.warning("La Norma 6.1-IC exige condiciones especiales para esta combinación extrema. Se requiere estudio específico.")
+        paquete_firme = norma_61_ic[categoria_trafico][explanada]
+        
+        # Generar gráfico de capas con Plotly
+        fig_seccion = go.Figure()
+        
+        # Recorremos el diccionario al revés para dibujar desde la subbase (abajo) hacia la rodadura (arriba)
+        for capa, datos in reversed(list(paquete_firme.items())):
+            espesor = datos[0]
+            color = datos[1]
+            
+            fig_seccion.add_trace(go.Bar(
+                x=['Sección del Firme'], 
+                y=[espesor],
+                name=capa,
+                marker_color=color,
+                text=f"<b>{capa}</b><br>{espesor} cm",
+                textposition='inside',
+                insidetextanchor='middle',
+                textfont=dict(color='white', size=14),
+                hoverinfo='none'
+            ))
 
-    # --- MAPA INTERACTIVO CON FOLIUM ---
+        fig_seccion.update_layout(
+            barmode='stack',
+            height=400,
+            margin=dict(l=0, r=0, t=0, b=0),
+            showlegend=False,
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            yaxis=dict(showgrid=False, showticklabels=False, zeroline=False),
+            xaxis=dict(showgrid=False, showticklabels=False, zeroline=False)
+        )
+        
+        # Mostramos la tabla resumen y el gráfico
+        col_texto, col_grafico = st.columns([1, 1.5])
+        with col_texto:
+            st.info(f"**Tráfico:** {categoria_trafico} | **Explanada:** {explanada}")
+            df_capas = pd.DataFrame([{"Capa": k, "Espesor (cm)": v[0]} for k, v in paquete_firme.items()])
+            st.table(df_capas)
+        with col_grafico:
+            st.plotly_chart(fig_seccion, use_container_width=True, config={'displayModeBar': False})
+            
+    except KeyError:
+        st.warning("⚠️ La Norma 6.1-IC exige condiciones especiales para esta combinación extrema (Ej. no se admite E1 para tráficos altos). Se requiere estudio de estabilización de suelos.")
+
+    # --- MAPA INTERACTIVO CON FOLIUM (FONDO CLARO) ---
     st.markdown("### 🌍 Visor Cartográfico")
     vista_mapa = st.radio("Selecciona la vista del mapa:", ["📍 Vista Cercana", "🗺️ Mapa Completo"], horizontal=True)
 
-    # 1. Filtrar el GeoJSON para sacar solo la carretera seleccionada
     tramos_filtrados = []
     for feature in geojson_mapa['features']:
         prop = feature['properties']
-        match_prov = prop.get('provincia') == provincia
-        match_carr = prop.get('carretera') == carretera
-        # Si el shapefile tuviera el campo 'tramo', lo usaría. Si no, dibuja toda la vía en la provincia.
-        match_tramo = prop.get('tramo') == tramo if 'tramo' in prop else True
-
-        if match_prov and match_carr and match_tramo:
+        if prop.get('provincia') == provincia and prop.get('carretera') == carretera:
             tramos_filtrados.append(feature)
 
-    # 2. Calcular el centro exacto de la carretera para la cámara
     lats, lons = [], []
     for feat in tramos_filtrados:
         coords = feat['geometry']['coordinates']
-        geom_type = feat['geometry']['type']
-        
-        if geom_type == 'LineString':
+        if feat['geometry']['type'] == 'LineString':
             for pt in coords:
-                lons.append(pt[0])
-                lats.append(pt[1])
-        elif geom_type == 'MultiLineString':
+                lons.append(pt[0]); lats.append(pt[1])
+        elif feat['geometry']['type'] == 'MultiLineString':
             for line in coords:
                 for pt in line:
-                    lons.append(pt[0])
-                    lats.append(pt[1])
+                    lons.append(pt[0]); lats.append(pt[1])
 
-    # 3. Ajustar el zoom según el botón seleccionado
     if vista_mapa == "📍 Vista Cercana" and len(lats) > 0:
         centro = [sum(lats)/len(lats), sum(lons)/len(lons)]
         zoom_nivel = 11
     else:
-        centro = [39.5, -3.0] # Centro geográfico de la Península
+        centro = [39.5, -3.0] 
         zoom_nivel = 6
 
-    # 4. Dibujar el mapa en tono oscuro estilo ingeniería
+    # Hemos cambiado el tiles a "CartoDB positron" para que se vea claro y útil
     m = folium.Map(location=centro, zoom_start=zoom_nivel, tiles="CartoDB positron")
 
     if len(tramos_filtrados) > 0:
@@ -157,10 +204,9 @@ with col_resultados:
     else:
         st.warning("⚠️ No se ha encontrado la geometría cartográfica de esta carretera en el archivo.")
 
-    # 5. Renderizar el mapa en Streamlit
     st_folium(m, width="100%", height=400, returned_objects=[])
 
-    # --- GRÁFICO DE EVOLUCIÓN AL FINAL ---
+    # --- GRÁFICO DE EVOLUCIÓN ---
     st.markdown("### 📈 Evolución del Tráfico Pesado")
     años = list(range(0, horizonte + 1))
     trafico_anual = [imdp_carril_diseno_inicial * ((1 + (tasa_crecimiento/100))**a) for a in años]
