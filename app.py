@@ -146,7 +146,7 @@ with col_resultados:
         zoom_nivel = 6
 
     # 4. Dibujar el mapa en tono oscuro estilo ingeniería
-    m = folium.Map(location=centro, zoom_start=zoom_nivel, tiles="CartoDB dark_matter")
+    m = folium.Map(location=centro, zoom_start=zoom_nivel, tiles="CartoDB positron")
 
     if len(tramos_filtrados) > 0:
         capa_geojson = {"type": "FeatureCollection", "features": tramos_filtrados}
