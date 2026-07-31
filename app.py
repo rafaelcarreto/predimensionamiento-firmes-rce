@@ -1,82 +1,140 @@
-import pandas as pd
 import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
 
-# 1. Configuración de la interfaz
-st.set_page_config(page_title="Cálculo de Firmes - MITMA", layout="wide")
-st.title("🛣️ Pre-dimensionamiento de Firmes (Norma 6.1 IC)")
-st.markdown("Herramienta interactiva para calcular la **Categoría de Tráfico Pesado** cruzando Open Data del MITMA con la normativa técnica.")
+# 1. Configuración de página (Para que ocupe todo el ancho y no quede espacio en blanco)
+st.set_page_config(page_title="Diseño de Firmes 6.1-IC", layout="wide")
 
-# 2. Carga de los datos en la nube
+# 2. Diccionario de Firmes (Norma 6.1-IC para mezclas bituminosas)
+# Esto es una simplificación de la norma para secciones flexibles/semi-rígidas
+secciones_firme = {
+    "T00": {"E3": "Rodadura: 3cm (BBTM) | Intermedia: 8cm (AC) | Base: 14cm (AC) | Subbase: 25cm (Zahorra)"},
+    "T0":  {"E2": "Rodadura: 3cm (BBTM) | Intermedia: 7cm (AC) | Base: 15cm (AC) | Subbase: 25cm (Zahorra)",
+            "E3": "Rodadura: 3cm (BBTM) | Intermedia: 7cm (AC) | Base: 12cm (AC) | Subbase: 25cm (Zahorra)"},
+    "T1":  {"E2": "Rodadura: 5cm (AC) | Intermedia: 7cm (AC) | Base: 12cm (AC) | Subbase: 25cm (Zahorra)",
+            "E3": "Rodadura: 5cm (AC) | Base: 14cm (AC) | Subbase: 25cm (Zahorra)"},
+    "T2":  {"E2": "Rodadura: 5cm (AC) | Base: 12cm (AC) | Subbase: 20cm (Zahorra)",
+            "E3": "Rodadura: 5cm (AC) | Base: 10cm (AC) | Subbase: 20cm (Zahorra)"},
+    "T3":  {"E1": "Rodadura: 5cm (AC) | Base: 12cm (AC) | Subbase: 25cm (Zahorra)",
+            "E2": "Rodadura: 5cm (AC) | Base: 10cm (AC) | Subbase: 20cm (Zahorra)",
+            "E3": "Rodadura: 5cm (AC) | Base: 8cm (AC) | Subbase: 20cm (Zahorra)"},
+    "T4":  {"E1": "Rodadura: 5cm (AC) | Subbase: 25cm (Zahorra)",
+            "E2": "Rodadura: 5cm (AC) | Subbase: 20cm (Zahorra)",
+            "E3": "Rodadura: 5cm (AC) | Subbase: 20cm (Zahorra)"}
+}
+
+# (Tu código de carga de datos sigue igual)
 @st.cache_data
 def cargar_datos():
-    # Lee tu archivo limpio directamente desde GitHub
-    return pd.read_csv('datos_carreteras.csv', encoding='utf-8')
+    return pd.read_csv("datos_carreteras.csv")
 
-try:
-    df = cargar_datos()
-except FileNotFoundError:
-    st.error("⚠️ Archivo 'datos_carreteras.csv' no encontrado.")
-    st.stop()
+df = cargar_datos()
 
-# 3. Panel Lateral - Filtros de Ubicación
-st.sidebar.header("1. Seleccionar Tramo")
-provincia_seleccionada = st.sidebar.selectbox("Provincia", sorted(df['provincia'].unique()))
-df_prov = df[df['provincia'] == provincia_seleccionada]
+st.title("🛣️ Dimensionamiento de Firmes (Norma 6.1-IC)")
 
-carretera_seleccionada = st.sidebar.selectbox("Vía (Autovía / Nacional)", sorted(df_prov['carretera'].unique()))
-df_carr = df_prov[df_prov['carretera'] == carretera_seleccionada]
+# --- DIVIDIMOS LA PANTALLA EN 2 COLUMNAS ---
+col_controles, col_resultados = st.columns([1, 2]) # La derecha es el doble de ancha
 
-tramo_seleccionado = st.sidebar.selectbox("Tramo (Punto Kilométrico)", df_carr['tramo'])
-datos_tramo = df_carr[df_carr['tramo'] == tramo_seleccionado].iloc[0]
-
-# 4. Panel Lateral - Parámetros de la Vía
-st.sidebar.markdown("---")
-st.sidebar.header("2. Parámetros de Diseño")
-crecimiento = st.sidebar.slider("Tasa de crecimiento anual (%)", 0.0, 5.0, 2.0, step=0.1)
-vida_util = st.sidebar.selectbox("Horizonte de Proyecto (años)", [10, 15, 20, 30], index=2)
-carriles = st.sidebar.number_input("Carriles por sentido", min_value=1, max_value=4, value=2)
-
-# 5. Motor Matemático (Fórmulas 6.1 IC)
-imd_sentido = datos_tramo['imd_total'] * 0.5
-imd_pesados_sentido = datos_tramo['imd_pesado'] * 0.5
-
-# Factor de distribución de pesados por carril derecho
-f_carril = 1.0 if carriles <= 2 else 0.85
-
-imdp_actual = imd_pesados_sentido * f_carril
-imdp_proyecto = imdp_actual * ((1 + (crecimiento / 100)) ** vida_util)
-
-# Asignación de Categoría T
-if imdp_proyecto >= 4000:
-    categoria = "T00"
-elif imdp_proyecto >= 2000:
-    categoria = "T0"
-elif imdp_proyecto >= 800:
-    categoria = "T1"
-elif imdp_proyecto >= 200:
-    categoria = "T2"
-elif imdp_proyecto >= 50:
-    categoria = "T3"
-else:
-    categoria = "T4"
-
-# 6. Visualización de Resultados
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("Datos de Aforo (MITMA 2024)")
-    st.write(f"**Ubicación:** {datos_tramo['provincia']}")
-    st.write(f"**Sección:** {datos_tramo['tramo']}")
-    st.metric("IMD Total", f"{int(datos_tramo['imd_total']):,} veh/día".replace(",", "."))
-    st.metric("% Vehículos Pesados", f"{datos_tramo['porcentaje_pesados']} %")
-
-with col2:
-    st.subheader("Análisis Normativa 6.1 IC")
-    st.metric("IMDp (Año base)", f"{int(imdp_actual)} pesados/carril")
-    st.metric(f"IMDp (Proyectado a {vida_util} años)", f"{int(imdp_proyecto)} pesados/carril")
+with col_controles:
+    st.subheader("1. Selección de Datos")
+    provincia = st.selectbox("Provincia", sorted(df['provincia'].unique()))
+    df_prov = df[df['provincia'] == provincia]
     
-    st.markdown(f"### Categoría Asignada: **{categoria}**")
-    if categoria in ["T00", "T0", "T1"]:
-        st.warning("⚠️ **Tráfico pesado elevado:** Se exige sección estructural de alta capacidad (mezclas bituminosas de alto módulo u hormigón).")
-    else:
-        st.success("✅ **Tráfico moderado/ligero:** Sección estructural estándar permitida.")
+    carretera = st.selectbox("Carretera", sorted(df_prov['carretera'].unique()))
+    df_carr = df_prov[df_prov['carretera'] == carretera]
+    
+    tramo = st.selectbox("Tramo", df_carr['tramo'])
+    
+    # Extraemos los datos del tramo
+    datos_tramo = df_carr[df_carr['tramo'] == tramo].iloc[0]
+    imd_base = datos_tramo['imd_total']
+    pesados_base = datos_tramo['porcentaje_pesados']
+    
+    st.info(f"📊 **IMD Actual:** {int(imd_base)} veh/día\n\n🚚 **% Pesados:** {pesados_base}%")
+
+    st.subheader("2. Parámetros de Diseño")
+    tasa_crecimiento = st.number_input("Tasa de Crecimiento Anual (%)", value=2.0, step=0.5)
+    horizonte = st.slider("Horizonte de Proyecto (Años)", 10, 30, 20)
+    carriles = st.radio("Número de Carriles (por calzada)", [1, 2, 3], index=1)
+    
+    st.subheader("3. Capacidad Portante")
+    explanada = st.selectbox("Categoría de la Explanada", ["E1", "E2", "E3"], index=1, help="Según Norma 6.1-IC")
+
+# --- CÁLCULOS MATEMÁTICOS ---
+# 1. IMD Pesados en el año inicial (mitad para cada sentido aprox, o total si es calzada única)
+imdp_inicial = imd_base * (pesados_base / 100) / 2 
+
+# 2. Factor de carriles (Norma 6.1-IC)
+factor_carril = 1.0 if carriles == 1 else (0.5 if carriles == 2 else 0.4)
+imdp_carril_diseno_inicial = imdp_inicial * factor_carril
+
+# 3. Evolución del tráfico (Fórmula del interés compuesto)
+# Calculamos el tráfico para el año intermedio del horizonte de proyecto según dicta la norma
+factor_crecimiento = (1 + (tasa_crecimiento/100))**(horizonte/2)
+imdp_proyecto = imdp_carril_diseno_inicial * factor_crecimiento
+
+# Asignación de Categoría de Tráfico (Norma 6.1-IC)
+if imdp_proyecto >= 4000:
+    categoria_trafico = "T00"
+elif imdp_proyecto >= 2000:
+    categoria_trafico = "T0"
+elif imdp_proyecto >= 800:
+    categoria_trafico = "T1"
+elif imdp_proyecto >= 200:
+    categoria_trafico = "T2"
+elif imdp_proyecto >= 50:
+    categoria_trafico = "T3"
+else:
+    categoria_trafico = "T4"
+
+with col_resultados:
+    st.subheader("Resultados del Predimensionamiento")
+    
+    # Tarjetas visuales bonitas
+    col1, col2, col3 = st.columns(3)
+    col1.metric("IMDp Carril Diseño", f"{int(imdp_carril_diseno_inicial)} veh/día")
+    col2.metric("IMDp Medio Proyecto", f"{int(imdp_proyecto)} veh/día")
+    col3.metric("Categoría de Tráfico", categoria_trafico)
+    
+    # --- LA CAJA DE CRISTAL (Explicación) ---
+    with st.expander("🔍 Ver desglose de cálculo y normativa"):
+        st.markdown(f"""
+        **Fórmula aplicada (Norma 6.1-IC):**
+        * $IMD_p$ inicial por sentido = IMD total $\\times$ % pesados / 2
+        * Coeficiente de carril para {carriles} carriles = {factor_carril}
+        * $IMD_p$ carril diseño = {int(imdp_carril_diseno_inicial)} pesados/día
+        
+        **Cálculo a futuro:**
+        Se proyecta a la mitad de la vida útil ({horizonte/2} años) con un crecimiento del {tasa_crecimiento}%.
+        * $IMD_p$ proyecto = {int(imdp_carril_diseno_inicial)} $\\times (1 + {tasa_crecimiento/100})^{{{horizonte/2}}}$ = **{int(imdp_proyecto)} pesados/día**
+        """)
+        
+    # --- GRÁFICO DE EVOLUCIÓN PARA RELLENAR ESPACIO ---
+    st.markdown("### 📈 Evolución del Tráfico Pesado")
+    años = list(range(0, horizonte + 1))
+    trafico_anual = [imdp_carril_diseno_inicial * ((1 + (tasa_crecimiento/100))**a) for a in años]
+    
+    df_grafico = pd.DataFrame({"Año": años, "IMDp (Pesados/día)": trafico_anual})
+    fig = px.line(df_grafico, x="Año", y="IMDp (Pesados/día)", markers=True, 
+                  color_discrete_sequence=['#FF4B4B'])
+    
+    # Línea horizontal para marcar el límite de la categoría asignada
+    if categoria_trafico == "T1": limite = 800
+    elif categoria_trafico == "T2": limite = 200
+    elif categoria_trafico == "T3": limite = 50
+    else: limite = 2000
+    fig.add_hline(y=limite, line_dash="dash", line_color="gray", annotation_text=f"Límite {categoria_trafico}")
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+    # --- DISEÑO ESTRUCTURAL DEL FIRME ---
+    st.markdown("### 🏗️ Sección Estructural Recomendada")
+    st.info(f"Para un tráfico **{categoria_trafico}** y una explanada **{explanada}**, la sección tipo para mezclas bituminosas es:")
+    
+    # Buscamos la sección en nuestro diccionario
+    try:
+        seccion_recomendada = secciones_firme[categoria_trafico][explanada]
+        st.success(seccion_recomendada)
+    except KeyError:
+        st.warning("La Norma 6.1-IC exige condiciones especiales (ej. estabilizaciones con cemento) para esta combinación extrema de tráfico y explanada. Se requiere estudio específico.")
